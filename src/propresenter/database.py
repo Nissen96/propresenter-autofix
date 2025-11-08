@@ -2,7 +2,7 @@
 import sqlite3
 from pathlib import Path
 
-from .model import Song
+from .types import Song
 
 
 def init_database(db_path: Path) -> None:

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from propresenter.constants import DEFAULT_DB_PATH, VALID_BOOKS
 from propresenter.database import init_database, save_song
-from propresenter.model import Song
+from propresenter.types import Song
 from propresenter.utils import setup_logging
 
 # Set up logger
