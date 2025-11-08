@@ -81,6 +81,7 @@ def cleanup_slide_text(lines: list[str], intro: bool = False, song: Song | None 
         while lines and lines[-1] in ("", "-", "."):
             lines.pop()
 
+    # Remove existing info inserted into some song slides
     if not intro and song is not None:
         info_lines1 = [normalize(line).lower() for line in song.info]
         info_lines2 = [normalize2(line).lower() for line in song.info]
@@ -88,13 +89,13 @@ def cleanup_slide_text(lines: list[str], intro: bool = False, song: Song | None 
             line for line in lines
             if not (l := line.lower()).startswith(f"{song.book} {song.number:03d}".lower())
             and not l.startswith(f"{song.book} {song.number}".lower())
-            and l != "mellemspil"
             and l not in info_lines1
             and l not in info_lines2
             and l.replace(", ", ". ") not in info_lines1
             and l.replace(", ", ". ") not in info_lines2
         ]
-    
+
+    # No lines left after removals
     if len(lines) == 0:
         return []
 
@@ -230,13 +231,13 @@ def set_song_settings(song: Song, pres: pb.Presentation) -> None:
 
                 # Get slide text from original song based on a few identified patterns
                 patterns = [
-                    r"\\cb\d+ ?(.*?)(\\par|\})",
-                    r"\\nosupersub ?(.*?)(\\par|\})",
-                    r"\\ltrch ?(.*?)()\}",
+                    r"(\\b0?\\i0?\\ul0?\\strike0?).*?\\cb\d+ ?(.*?)(\\par|\})",
+                    r"(\\b0?\\i0?\\ul0?\\strike0?).*?\\nosupersub ?(.*?)(\\par|\})",
+                    r"(\\b0?\\i0?\\ul0?\\strike0?).*?\\ltrch ?(.*?)()\}",
                 ]
                 
                 for pattern in patterns:
-                    song_lines = [match[0].strip() for match in re.findall(pattern, text.rtf_data.decode())]
+                    song_lines = [f"{match[0]} {match[1].strip()}" for match in re.findall(pattern, text.rtf_data.decode())]
                     if len(song_lines) > 0:
                         break
 
@@ -252,7 +253,8 @@ def set_song_settings(song: Song, pres: pb.Presentation) -> None:
                 
                 # If only one line, check if it should be removed
                 if len(cleaned_lines) == 1:
-                    print(f"{song.book} {song.number:03d} - Slide {i + 1} har kun én linje:\n    \"{cleaned_lines[0]}\"")
+                    line = re.sub(r"\\b0?\\i0?\\ul0?\\strike0?", "", cleaned_lines[0]).strip()
+                    print(f"{song.book} {song.number:03d} - Slide {i + 1} har kun én linje:\n    \"{line}\"")
                     ans = input("Fjern dette slide? [Y/n] ")
                     if not ans or ans[0].lower() != "n":
                         logger.warning(f"{song.book} {song.number:03d} - Slide {i + 1} fjernes")
@@ -395,6 +397,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_DB_PATH,
         help="Database sti (default: %(default)s)"
     )
+    parser.add_argument(
+        "--add-infoslide",
+        action="store_true",
+        help="Tilføj infoslide til alle sange"
+    )
     return parser.parse_args()
 
 
@@ -449,16 +456,6 @@ def main():
             logger.warning(f"{book} {i:03d} - Sangen har ingen slides, springer over")
             continue
 
-        # Optionally, replace existing Infoslide if present
-        if pres.cues and pres.cues[0].actions[0].label.text == "Infoslide":
-            ans = input("Sangen har allerede et infoslide - udskift? [y/N] ")
-            if not ans or ans[0].lower() != "y":
-                continue
-
-            # Remove info cue and its identifier
-            del pres.cues[0]
-            del pres.cue_groups[0].cue_identifiers[0]
-
         # Fetch song info from database or if not possible, enter manually
         song = load_song(db_path, book, i)
         if song is None:
@@ -482,8 +479,21 @@ def main():
         set_song_settings(song, pres)
         
         # Create and prepend slide with song information
-        info_slide = make_infoslide(song)
-        insert_slide(pres, info_slide, 0)
+        if args.add_infoslide:
+            # Optionally, replace existing Infoslide if present
+            add_infoslide = True
+            if pres.cues and pres.cues[0].actions[0].label.text == "Infoslide":
+                ans = input("Sangen har allerede et infoslide - udskift? [y/N] ")
+                if ans.lower()[0] == "y":
+                    # Remove info cue and its identifier
+                    del pres.cues[0]
+                    del pres.cue_groups[0].cue_identifiers[0]
+                else:
+                    add_infoslide = False
+
+            if add_infoslide:
+                info_slide = make_infoslide(song)
+                insert_slide(pres, info_slide, 0)
 
         # Write result to output library
         out = write_presentation(pp_out, song, pres)
